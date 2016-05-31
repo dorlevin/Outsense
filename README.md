@@ -2,6 +2,7 @@
 code for Intel Edison module using camera, leds, proximity sensor, and MCU programming for Power management.
 
 software prerequisites:
+* update to latest FW and OS image
 * MCU-SDK quickstart - https://software.intel.com/en-us/creating-applications-with-mcu-sdk-for-intel-edison-board
 * install latest libmraa on Edison
 * install dropbox deamon on Edison - https://www.dropbox.com/install?os=lnx
