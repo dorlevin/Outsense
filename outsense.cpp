@@ -62,7 +62,7 @@ time_t now;
 static uint64_t imageNum = 0;
 
 
-
+//c-tor, pin numbers can be changed as you wish
 Outsensor::Outsensor(void)
 :Outsensor(13, 3, 6, 9, 10, 11)
 {}
@@ -79,7 +79,7 @@ Outsensor::~Outsensor(void)
         delete m_sensorEn;
 }
 
-
+//interrupt handler, for when waking up from low-power mode
 void interruptHandler(void *args){
 //	if (debug) cout<<"woke up due to sensor interrupt"<<endl;
 //	g_outsensor->Cycle();
@@ -91,6 +91,10 @@ void interruptHandler(void *args){
 array<mraa::Gpio*, 4> g_leds;//for clean exit purpuse
 mraa::Gpio* g_sensor;
 mraa::Gpio* g_sensorEn;
+//setup GPIO pins as connected by HW:
+//sensorPin - Digital input from proximity sensor
+//sensorEnPin - digital output pin, connected to the sensor's Vcc, in order to disable it
+//led1-4 - Digital output pins, connected to the Anodes.
 int Outsensor::setupIO(unsigned sensorPin, unsigned sensorEnPin, unsigned led1, unsigned led2, unsigned led3, unsigned led4){
     // create a analog input object from Analog pin 0
     m_sensor = new mraa::Gpio(sensorPin);
@@ -122,7 +126,7 @@ int Outsensor::setupIO(unsigned sensorPin, unsigned sensorEnPin, unsigned led1, 
 Power_state Outsensor::getPstate(void) const{
         return m_pstate;
 }
-
+//this function is in charge of doing a cycle when in active mode. in charge of leds and camera usage
 int Outsensor::Cycle(void){
 	VideoCapture cap(0);
 	if (!cap.isOpened()){
@@ -143,6 +147,7 @@ int Outsensor::Cycle(void){
 	Mat frame[4];
 
 	int i = 0;
+	//flash leds, and capture frames
 	for (auto led: m_ledArray)
 	{
 		led->write(1);
@@ -152,6 +157,7 @@ int Outsensor::Cycle(void){
 		cap >> waste;
 		++i;
 	}
+	//save frames to files
 	for (auto f : frame){
 		string num = numPre + "_" + to_string(++imageNum);
 		string path= pre + num + ".jpg";
@@ -164,6 +170,7 @@ int Outsensor::Cycle(void){
 	if (dropbox) sendImages(false);
 	return 1;
 }
+//kill Wifi and wpa, and enable power down sleep, in order to let the Edison go to S3
 void Outsensor::setup(void){
         system("ifconfig wlan0 down");//shut down wifi for battery
         system("systemctl stop wpa_supplicant");
@@ -172,6 +179,7 @@ void Outsensor::setup(void){
 
 
 }
+//registers a wakeup call with the MCU, and then takes the Edison into S3 power state
 void Outsensor::S3(){
 		signal(SIGINT, signalHandler);
         m_pstate=Power_state::PowerDown;
@@ -185,7 +193,7 @@ void Outsensor::S3(){
         system(cmd.c_str());
         sleep(0.2);
 }
-
+//takes Edison into S4 power state
 void Outsensor::S4(){
         m_pstate = Power_state::NightSleep;
 //      echo -n "disk" > /sys/power/state > log.txt
@@ -197,11 +205,11 @@ void Outsensor::S4(){
         system(cmd.c_str());
 }
 
-
+//Digital value of sensor output
 inline bool Outsensor::sense(void){
         return m_sensor->read();
 }
-
+//poweroffs machine at night time
 void Outsensor::nightSleep(void){
         time_t t = time(0);
         t%=SECSPDAY;//seconds today
@@ -218,7 +226,7 @@ void Outsensor::writeLog(string message){
 
 }
 
-
+//poweroffs machine at night time, after sending some images back, for Quality assurance
 void Outsensor::powerOff(bool reduceQuality){
 	signal(SIGINT, signalHandler);
 
@@ -228,7 +236,7 @@ void Outsensor::powerOff(bool reduceQuality){
 	system(cmd.c_str());
 }
 
-
+//function to send images back to recipient Dropbox account. should wake back up the Wifi and wpa
 bool Outsensor::sendImages(bool reduceQuality){
 	signal(SIGINT, signalHandler);
 	if (imageNum<=1){
@@ -263,7 +271,7 @@ bool Outsensor::sendImages(bool reduceQuality){
     system("systemctl stop wpa_supplicant");
 	return true;
 }
-
+//signal handler for exiting cleanly after receiving CTRL+C
 void signalHandler( int signum )
 {
     cout << "Interrupt signal (" << signum << ") received.\n";
@@ -277,16 +285,17 @@ void signalHandler( int signum )
     g_sensorEn->write(0);
    exit(signum);
 }
-
+//power on the sensor, by pushing "1" through the sensorEn pin
 void Outsensor::enableSensor(void){
 	if (debug) cout<<"enabling sensor"<<endl;
 	m_sensorEn->write(1);
 }
+//power off the sensor, by pushing "0" through the sensorEn pin
 void Outsensor::disableSensor(void){
 	if (debug) cout<<"disabling sensor"<<endl;
 	m_sensorEn->write(0);
 }
-
+//register a wakeup call with the MCU, using the ttymcu port
 void Outsensor::registerWakeUp(void){
 	if (debug) cout<<"registering a wake up call"<<endl;
 	string cmd = "echo ";
@@ -331,6 +340,7 @@ int main( int argc, char *argv[])
 	time_t t;
 	while (1)
 	{
+			//cycle if proximity sensor is detecting
 			if (outsensor.sense()) outsensor.Cycle();
 			outsensor.disableSensor();
 			if (debug) cout<<"trying to go to S3"<<endl;
@@ -338,12 +348,14 @@ int main( int argc, char *argv[])
 			t = time(0);
 			t%=SECSPDAY;
 			if (debug) cout <<"t: "<<t<<", deathtime:"<<DEATHSEC<<endl;
+			//after cycle/if not detecting, take Edison into S3 power state, or poweroff, depands on time of day
 			if (t<=DEATHSEC)
 				outsensor.S3();
 			else
 				outsensor.powerOff(!debug);
 			signal(SIGINT, signalHandler);
 			if (debug) cout<<"woke up from S3"<<endl;
+			//re-enable the sensor, for next sense
 			outsensor.enableSensor();
 			outsensor.disableSensor();
 			outsensor.enableSensor();
